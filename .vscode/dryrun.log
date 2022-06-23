@@ -1,0 +1,12 @@
+make --dry-run --always-make --keep-going --print-directory
+make: Entering directory '/home/richard/Documents/aks-integration'
+ 
+mkdir -p /home/richard/Documents/aks-integration/bin
+ 
+GOBIN=/home/richard/Documents/aks-integration/bin go install sigs.k8s.io/controller-tools/cmd/controller-gen@v0.8.0
+/home/richard/Documents/aks-integration/bin/controller-gen object:headerFile="hack/boilerplate.go.txt" paths="./..."
+go fmt ./...
+go vet ./...
+go build -o bin/manager main.go
+make: Leaving directory '/home/richard/Documents/aks-integration'
+ 

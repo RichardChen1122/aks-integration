@@ -1,0 +1,24 @@
+# permissions for end users to edit configurationproviders.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: configurationprovider-editor-role
+rules:
+- apiGroups:
+  - appconfig.kubernetes.config
+  resources:
+  - configurationproviders
+  verbs:
+  - create
+  - delete
+  - get
+  - list
+  - patch
+  - update
+  - watch
+- apiGroups:
+  - appconfig.kubernetes.config
+  resources:
+  - configurationproviders/status
+  verbs:
+  - get

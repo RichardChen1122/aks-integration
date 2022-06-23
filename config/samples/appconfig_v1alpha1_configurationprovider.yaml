@@ -1,0 +1,11 @@
+apiVersion: appconfig.kubernetes.config/v1alpha1
+kind: ConfigurationProvider
+metadata:
+  name: configurationprovider-sample
+spec:
+  # TODO(user): Add fields here
+  endpoint: junbchenConfig
+  clientid: 9c827b33-bd0e-4d39-80c8-3e6b973e94a5
+  clientsecret: WFQ7Q~P~pIoEL9ZeCqF1YCF.pcxGxqXs~3ehg
+  configmapname: "to-be-created-operator"
+  TenantId: 72f988bf-86f1-41af-91ab-2d7cd011db47
