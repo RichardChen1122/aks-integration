@@ -18,16 +18,12 @@ package controllers
 
 import (
 	"context"
-	"flag"
 	"fmt"
-	"path/filepath"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/data/azappconfig"
 	"k8s.io/apimachinery/pkg/runtime"
-	"k8s.io/client-go/kubernetes"
-	"k8s.io/client-go/tools/clientcmd"
-	"k8s.io/client-go/util/homedir"
+	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/log"
@@ -42,7 +38,8 @@ import (
 // ConfigurationProviderReconciler reconciles a ConfigurationProvider object
 type ConfigurationProviderReconciler struct {
 	client.Client
-	Scheme *runtime.Scheme
+	Scheme   *runtime.Scheme
+	recorder record.EventRecorder
 }
 
 //+kubebuilder:rbac:groups=appconfig.kubernetes.config,resources=configurationproviders,verbs=get;list;watch;create;update;patch;delete
@@ -62,55 +59,72 @@ func (r *ConfigurationProviderReconciler) Reconcile(ctx context.Context, req ctr
 	_ = log.FromContext(ctx)
 
 	// TODO(user): your logic here
-	reqLogger := log.Log.WithValues("namespace", req.Namespace, "ConfigurationProvider", req.Name)
-	reqLogger.Info("====== Reconcil ConfigurationProvider")
+	logger := log.Log.WithValues("namespace", req.Namespace, "ConfigurationProvider", req.Name)
+	logger.Info("====== Reconcil ConfigurationProvider")
+	//Sleep 5mins, to demo the configmap creation latency
+	//time.Sleep(time.Duration(5) * time.Minute)
 
 	instance := &appconfigv1alpha1.ConfigurationProvider{}
 	err := r.Get(context.TODO(), req.NamespacedName, instance)
 
+	r.recorder.Event(instance, corev1.EventTypeNormal, "Start", "Ok")
+
 	if err != nil {
+		r.recorder.Event(instance, corev1.EventTypeWarning, "Start to error", err.Error())
 		return reconcile.Result{}, nil
 	}
+
+	// p := client.MergeFrom(instance.DeepCopy())
+	// defer func() {
+	// 	err = r.Status().Patch(ctx, instance, p)
+	// 	if err != nil {
+	// 		logger.Error(err, "errPatchStatus")
+	// 	}
+	// }()
 
 	if instance.Status.Phase == "" {
 		instance.Status.Phase = appconfigv1alpha1.PhasePending
 	}
 
 	if instance.Status.Phase == appconfigv1alpha1.PhasePending {
-		reqLogger.Info("====== Reconcil Start..")
+		logger.Info("====== Reconcil Start..")
 	}
 
 	appconfigname := instance.Spec.Endpoint
 
 	endpoint := "https://" + appconfigname + ".azconfig.io"
 	clientId := instance.Spec.ClientId
-	clientSecret := instance.Spec.ClientId
+	clientSecret := instance.Spec.ClientSecret
 	tenantId := instance.Spec.TenantId
 
-	reqLogger.Info(endpoint)
-	credential, err := azidentity.NewClientSecretCredential(tenantId, clientId, clientSecret, nil)
-	client, err := azappconfig.NewClient(endpoint, credential, nil)
-	setting, err := client.SetSetting(context.TODO(), "message", nil, nil)
+	logger.Info(endpoint)
+	credential, _ := azidentity.NewClientSecretCredential(tenantId, clientId, clientSecret, nil)
+	client, _ := azappconfig.NewClient(endpoint, credential, nil)
+	setting, err := client.GetSetting(context.TODO(), "message", nil)
 
 	if err != nil {
-		reqLogger.Error(err, "error when get config", nil)
+		logger.Error(err, "error when get config", nil)
 	}
 
-	var kubeconfig *string
-	if home := homedir.HomeDir(); home != "" {
-		kubeconfig = flag.String("kubeconfig", filepath.Join(home, ".kube", "config"), "(optional) absolute path to the kubeconfig file")
-	} else {
-		kubeconfig = flag.String("kubeconfig", "", "absolute path to the kubeconfig file")
-	}
-	flag.Parse()
+	// var kubeconfig *string
+	// if home := homedir.HomeDir(); home != "" {
+	// 	kubeconfig = flag.String("kubeconfig1", filepath.Join(home, ".kube", "config"), "(optional) absolute path to the kubeconfig file")
+	// } else {
+	// 	kubeconfig = flag.String("kubeconfig1", "", "absolute path to the kubeconfig file")
+	// }
+	// flag.Parse()
 
-	config, err := clientcmd.BuildConfigFromFlags("", *kubeconfig)
-	if err != nil {
-		panic(err)
-	}
-	clientset, err := kubernetes.NewForConfig(config)
-	if err != nil {
-		panic(err)
+	// config, err := clientcmd.BuildConfigFromFlags("", *kubeconfig)
+	// if err != nil {
+	// 	panic(err)
+	// }
+	// clientset, err := kubernetes.NewForConfig(config)
+	// if err != nil {
+	// 	panic(err)
+	// }
+
+	mutationFunc := func() error {
+		return nil
 	}
 
 	//create configmap
@@ -121,7 +135,7 @@ func (r *ConfigurationProviderReconciler) Reconcile(ctx context.Context, req ctr
 	configMapToCreate := &corev1.ConfigMap{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:            instance.Spec.ConfigMapName,
-			Namespace:       "appconfig-dev",
+			Namespace:       instance.Namespace,
 			Labels:          instance.Labels,
 			Annotations:     instance.Annotations,
 			OwnerReferences: nil,
@@ -129,7 +143,9 @@ func (r *ConfigurationProviderReconciler) Reconcile(ctx context.Context, req ctr
 		Data: datas,
 	}
 
-	configmapCreated, err := clientset.CoreV1().ConfigMaps("appconfig-dev").Create(context.TODO(), configMapToCreate, metav1.CreateOptions{})
+	// configmapCreated, err := clientset.CoreV1().ConfigMaps(instance.Namespace).Create(context.TODO(), configMapToCreate, metav1.CreateOptions{})
+
+	operationResult, err := ctrl.CreateOrUpdate(ctx, r.Client, configMapToCreate, mutationFunc)
 
 	//secret, err := secretclient.Get(context.TODO(), "secret-to-be-created-wi", metav1.GetOptions{})
 
@@ -137,13 +153,17 @@ func (r *ConfigurationProviderReconciler) Reconcile(ctx context.Context, req ctr
 		panic(err)
 	}
 
-	fmt.Println(configmapCreated.GetName())
+	fmt.Println(operationResult)
+
+	instance.Status.Phase = appconfigv1alpha1.PhaseDone
 
 	return ctrl.Result{}, nil
 }
 
 // SetupWithManager sets up the controller with the Manager.
 func (r *ConfigurationProviderReconciler) SetupWithManager(mgr ctrl.Manager) error {
+	r.recorder = mgr.GetEventRecorderFor("configurationprovider")
+
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&appconfigv1alpha1.ConfigurationProvider{}).
 		Complete(r)
