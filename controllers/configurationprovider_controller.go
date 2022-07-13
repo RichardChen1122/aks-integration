@@ -103,7 +103,7 @@ func (r *ConfigurationProviderReconciler) Reconcile(ctx context.Context, req ctr
 	setting, err := client.GetSetting(context.TODO(), "message", nil)
 
 	if err != nil {
-		logger.Error(err, "error when get config", nil)
+		logger.Error(err, "error when get config")
 	}
 
 	// var kubeconfig *string
