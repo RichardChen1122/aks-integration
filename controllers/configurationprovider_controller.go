@@ -20,6 +20,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/data/azappconfig"
 	"k8s.io/apimachinery/pkg/runtime"
@@ -98,9 +99,27 @@ func (r *ConfigurationProviderReconciler) Reconcile(ctx context.Context, req ctr
 	tenantId := instance.Spec.TenantId
 
 	logger.Info(endpoint)
-	credential, _ := azidentity.NewClientSecretCredential(tenantId, clientId, clientSecret, nil)
+
+	var credential azcore.TokenCredential
+	var setting azappconfig.GetSettingResponse
+	credential, _ = azidentity.NewDefaultAzureCredential(nil)
+
 	client, _ := azappconfig.NewClient(endpoint, credential, nil)
-	setting, err := client.GetSetting(context.TODO(), "message", nil)
+	setting, err = client.GetSetting(context.TODO(), "message", nil)
+	if err != nil {
+		// if !strings.Contains(err.Error(), "403") {
+		// 	panic(err)
+		// }
+		credential, _ = azidentity.NewClientSecretCredential(tenantId, clientId, clientSecret, nil)
+		client, _ := azappconfig.NewClient(endpoint, credential, nil)
+		setting, err = client.GetSetting(context.TODO(), "message", nil)
+		if err != nil {
+			panic(err)
+		}
+	}
+
+	//client, _ := azappconfig.NewClient(endpoint, credential, nil)
+	//setting, err := client.GetSetting(context.TODO(), "message", nil)
 
 	if err != nil {
 		logger.Error(err, "error when get config", nil)
