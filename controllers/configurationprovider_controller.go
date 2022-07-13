@@ -23,6 +23,7 @@ import (
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/data/azappconfig"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -33,7 +34,6 @@ import (
 	appconfigv1alpha1 "appconfig/sync/api/v1alpha1"
 
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // ConfigurationProviderReconciler reconciles a ConfigurationProvider object
@@ -122,7 +122,7 @@ func (r *ConfigurationProviderReconciler) Reconcile(ctx context.Context, req ctr
 	//setting, err := client.GetSetting(context.TODO(), "message", nil)
 
 	if err != nil {
-		logger.Error(err, "error when get config", nil)
+		logger.Error(err, "error when get config")
 	}
 
 	// var kubeconfig *string
