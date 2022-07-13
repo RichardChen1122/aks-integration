@@ -17,16 +17,17 @@ limitations under the License.
 package controllers
 
 import (
+	"context"
 	"path/filepath"
 	"testing"
 
-	. "github.com/onsi/ginkgo"
+	. "github.com/onsi/ginkgo/v2"
 	. "github.com/onsi/gomega"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
+	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
 	"sigs.k8s.io/controller-runtime/pkg/envtest"
-	"sigs.k8s.io/controller-runtime/pkg/envtest/printer"
 	logf "sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/log/zap"
 
@@ -40,13 +41,14 @@ import (
 var cfg *rest.Config
 var k8sClient client.Client
 var testEnv *envtest.Environment
+var cancel context.CancelFunc
+var ctx context.Context
 
 func TestAPIs(t *testing.T) {
 	RegisterFailHandler(Fail)
 
-	RunSpecsWithDefaultAndCustomReporters(t,
-		"Controller Suite",
-		[]Reporter{printer.NewlineReporter{}})
+	RunSpecs(t,
+		"Controller Suite")
 }
 
 var _ = BeforeSuite(func() {
@@ -58,6 +60,7 @@ var _ = BeforeSuite(func() {
 		ErrorIfCRDPathMissing: true,
 	}
 
+	ctx, cancel = context.WithCancel(context.TODO())
 	var err error
 	// cfg is defined in this file globally.
 	cfg, err = testEnv.Start()
@@ -69,14 +72,43 @@ var _ = BeforeSuite(func() {
 
 	//+kubebuilder:scaffold:scheme
 
-	k8sClient, err = client.New(cfg, client.Options{Scheme: scheme.Scheme})
-	Expect(err).NotTo(HaveOccurred())
-	Expect(k8sClient).NotTo(BeNil())
+	// k8sClient, err = client.New(cfg, client.Options{Scheme: scheme.Scheme})
+	// Expect(err).NotTo(HaveOccurred())
+	// Expect(k8sClient).NotTo(BeNil())
 
-}, 60)
+	k8sManager, err := ctrl.NewManager(cfg, ctrl.Options{
+		Scheme: scheme.Scheme,
+	})
+	Expect(err).ToNot(HaveOccurred())
+
+	err = (&ConfigurationProviderReconciler{
+		Client: k8sManager.GetClient(),
+		Scheme: k8sManager.GetScheme(),
+	}).SetupWithManager(k8sManager)
+	Expect(err).ToNot(HaveOccurred())
+
+	go func() {
+		defer GinkgoRecover()
+		err = k8sManager.Start(ctrl.SetupSignalHandler())
+		Expect(err).ToNot(HaveOccurred(), "failed to run manager")
+	}()
+
+	k8sClient = k8sManager.GetClient()
+	Expect(k8sClient).ToNot(BeNil())
+
+})
 
 var _ = AfterSuite(func() {
+
+	cancel()
 	By("tearing down the test environment")
 	err := testEnv.Stop()
+	// Set 4 with random
+	// This is a work around for the issue which can't successfully tear down the api server,
+	// see https://github.com/kubernetes-sigs/controller-runtime/issues/1571
+	// if err != nil {
+	// 	time.Sleep(4 * time.Second)
+	// }
+	// err = testEnv.Stop()
 	Expect(err).NotTo(HaveOccurred())
 })

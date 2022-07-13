@@ -22,6 +22,7 @@ import (
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
 	"github.com/Azure/azure-sdk-for-go/sdk/data/azappconfig"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime"
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
@@ -32,7 +33,6 @@ import (
 	appconfigv1alpha1 "appconfig/sync/api/v1alpha1"
 
 	corev1 "k8s.io/api/core/v1"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 // ConfigurationProviderReconciler reconciles a ConfigurationProvider object
