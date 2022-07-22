@@ -19,6 +19,7 @@ package controllers
 import (
 	"context"
 	"fmt"
+	"sync"
 
 	"github.com/Azure/azure-sdk-for-go/sdk/azcore"
 	"github.com/Azure/azure-sdk-for-go/sdk/azidentity"
@@ -28,6 +29,7 @@ import (
 	"k8s.io/client-go/tools/record"
 	ctrl "sigs.k8s.io/controller-runtime"
 	"sigs.k8s.io/controller-runtime/pkg/client"
+	"sigs.k8s.io/controller-runtime/pkg/controller"
 	"sigs.k8s.io/controller-runtime/pkg/log"
 	"sigs.k8s.io/controller-runtime/pkg/reconcile"
 
@@ -43,7 +45,10 @@ type ConfigurationProviderReconciler struct {
 	recorder record.EventRecorder
 }
 
+var mutexMap map[string]*sync.Mutex = make(map[string]*sync.Mutex)
+
 //+kubebuilder:rbac:groups=appconfig.kubernetes.config,resources=configurationproviders,verbs=get;list;watch;create;update;patch;delete
+//+kubebuilder:rbac:groups=core,resources=configmaps,verbs=get;list;create;update;patch;delete;watch
 //+kubebuilder:rbac:groups=appconfig.kubernetes.config,resources=configurationproviders/status,verbs=get;update;patch
 //+kubebuilder:rbac:groups=appconfig.kubernetes.config,resources=configurationproviders/finalizers,verbs=update
 
@@ -68,10 +73,10 @@ func (r *ConfigurationProviderReconciler) Reconcile(ctx context.Context, req ctr
 	instance := &appconfigv1alpha1.ConfigurationProvider{}
 	err := r.Get(context.TODO(), req.NamespacedName, instance)
 
-	r.recorder.Event(instance, corev1.EventTypeNormal, "Start", "Ok")
+	// r.recorder.Event(instance, corev1.EventTypeNormal, "Start", "Ok")
 
 	if err != nil {
-		r.recorder.Event(instance, corev1.EventTypeWarning, "Start to error", err.Error())
+		// r.recorder.Event(instance, corev1.EventTypeWarning, "Start to error", err.Error())
 		return reconcile.Result{}, nil
 	}
 
@@ -91,32 +96,55 @@ func (r *ConfigurationProviderReconciler) Reconcile(ctx context.Context, req ctr
 		logger.Info("====== Reconcil Start..")
 	}
 
+	if val, ok := mutexMap[instance.Spec.Endpoint]; ok {
+		if !val.TryLock() {
+			logger.Info("One reconcile is running, please wait ")
+			return reconcile.Result{Requeue: true, RequeueAfter: 30}, nil
+		}
+
+		defer func() {
+			val.Unlock()
+		}()
+	} else {
+		mutex := &sync.Mutex{}
+		mutexMap[instance.Spec.Endpoint] = mutex
+		mutex.Lock()
+
+		defer func() {
+			mutex.Unlock()
+		}()
+	}
+
 	appconfigname := instance.Spec.Endpoint
 
 	endpoint := "https://" + appconfigname + ".azconfig.io"
-	clientId := instance.Spec.ClientId
-	clientSecret := instance.Spec.ClientSecret
-	tenantId := instance.Spec.TenantId
+	// clientId := instance.Spec.ClientId
+	// clientSecret := instance.Spec.ClientSecret
+	// tenantId := instance.Spec.TenantId
 
 	logger.Info(endpoint)
 
 	var credential azcore.TokenCredential
 	var setting azappconfig.GetSettingResponse
-	credential, _ = azidentity.NewDefaultAzureCredential(nil)
 
+	credential, _ = azidentity.NewDefaultAzureCredential(nil)
 	client, _ := azappconfig.NewClient(endpoint, credential, nil)
 	setting, err = client.GetSetting(context.TODO(), "message", nil)
-	if err != nil {
-		// if !strings.Contains(err.Error(), "403") {
-		// 	panic(err)
-		// }
-		credential, _ = azidentity.NewClientSecretCredential(tenantId, clientId, clientSecret, nil)
-		client, _ := azappconfig.NewClient(endpoint, credential, nil)
-		setting, err = client.GetSetting(context.TODO(), "message", nil)
-		if err != nil {
-			panic(err)
-		}
-	}
+
+	// if err != nil {
+	// 	// if !strings.Contains(err.Error(), "403") {
+	// 	// 	panic(err)
+	// 	// }
+	// 	credential, _ = azidentity.NewClientSecretCredential(tenantId, clientId, clientSecret, nil)
+	// 	// azidentity.NewManagedIdentityCredential(&azidentity.ManagedIdentityCredentialOptions{
+	// 	// 	ID: azidentity.ClientID(managedIdentityId),
+	// 	// })
+	// 	client, _ := azappconfig.NewClient(endpoint, credential, nil)
+	// 	setting, err = client.GetSetting(context.TODO(), "message", nil)
+	// 	if err != nil {
+	// 		panic(err)
+	// 	}
+	// }
 
 	//client, _ := azappconfig.NewClient(endpoint, credential, nil)
 	//setting, err := client.GetSetting(context.TODO(), "message", nil)
@@ -185,5 +213,6 @@ func (r *ConfigurationProviderReconciler) SetupWithManager(mgr ctrl.Manager) err
 
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&appconfigv1alpha1.ConfigurationProvider{}).
+		WithOptions(controller.Options{MaxConcurrentReconciles: 5}).
 		Complete(r)
 }
